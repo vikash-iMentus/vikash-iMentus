@@ -1,0 +1,152 @@
+//  SPDX-License-Identifier: MIT
+import "./library/SafeMath.sol";
+pragma solidity >=0.6.0 <0.8.0;
+
+contract Staking {
+    using SafeMath for uint256;
+
+    enum Status {
+        // validator not exist, default status
+        NotExist,
+        // validator created
+        Created,
+        // anyone has staked for the validator
+        Staked,
+        // validator's staked coins < MinimalStakingCoin
+        Unstaked,
+        // validator is jailed by system(validator have to repropose)
+        Jailed
+    }
+
+    // Validator Struct
+    struct Validator {
+        address validator;
+        Status status;
+        uint256 amount; // self amount
+        uint256 coins; //  self + delegators
+        address[] delegators;
+    }
+
+    struct Delegator {
+        address delegatorAddress; // self address
+        uint256 amount; // self stake
+        uint256 unstakeblock; // unstakeblock = 0 means can stake if !=0 already unstake
+        uint256 index; // index no represent in delegators array in Validator Struct
+    }
+
+    // Validator Address  = > Get Validator Information
+    mapping(address => Validator) validatorInfo;
+
+    mapping(address => mapping(address => Delegator)) stakingInfo;
+
+    address[] public currentValidators; // All Validators
+    address[] public highestValidators; // Only Top 21
+
+    uint256 public totaldxDXTStake; //  To DXT Stake Amount
+
+    /**********Constant**********/
+    uint256 public constant minimumStakeAmount = 10 ether; // Minimum Stake DXT
+    uint16 public constant MaxValidators = 21; // Total Max Validator
+    uint64 public constant StakingLockPeriod = 1 minutes; // Stake Locking Period
+    uint64 public constant WithdrawProfitPeriod = 2 minutes; // Withdraw Profit Period
+
+    /**********Punish Params**********/
+
+    uint256 public removeThreshold = 48;
+    uint256 public punishThreshold = 24;
+
+    struct PunishRecord {
+        uint256 missedBlockCounter;
+        uint256 index;
+        bool isPunished;
+    }
+
+    mapping(address => PunishRecord) punishRecord;
+    //Mapping for Block Number Tracking
+    mapping(uint256 => bool) punished;
+    mapping(uint256 => bool) decreased;
+
+    enum Operations {
+        Distribute,
+        UpdateValidators
+    }
+    // Record the operations is done or not.
+    mapping(uint256 => mapping(uint8 => bool)) operationsDone;
+
+    function stakeValidator() public payable returns (bool) {
+        address staker = msg.sender;
+        uint256 stakeamount = msg.value;
+
+        //Struct Validator Variable
+        Validator storage valInfo = validatorInfo[staker];
+
+        if (stakeamount < 0) {
+            return false;
+        }
+        // Check for Minimum Stake DXT
+        require(stakeamount >= minimumStakeAmount, "Must Stake 10 or More");
+
+        if (!isActiveValidator(staker) && Status.NotExist == valInfo.status) {
+            valInfo.validator = staker;
+            valInfo.status = Status.Created;
+            valInfo.amount = valInfo.amount.add(stakeamount);
+            valInfo.coins = 0;
+        } else if (
+            isActiveValidator(staker) && Status.Staked == valInfo.status
+        ) {
+            valInfo.amount = valInfo.amount.add(stakeamount);
+        }
+
+        if (highestValidators.length < MaxValidators) {
+            highestValidators.push(staker); // push into highestValidator if there is space
+        } else if (highestValidators.length >= MaxValidators) {
+            // Find The Lowest Coins Address & Index in HighestValidators List
+            uint256 lowestCoin = validatorInfo[highestValidators[0]].coins;
+            uint256 lowIndex = 0;
+            address validatorRemoveAddress;
+
+            for (uint256 j = 1; j < highestValidators.length; j++) {
+                if (validatorInfo[highestValidators[j]].coins < lowestCoin) {
+                    validatorRemoveAddress = highestValidators[j];
+                    lowIndex = j;
+                    lowestCoin = validatorInfo[highestValidators[j]].coins;
+                }
+            }
+
+            if (stakeamount > lowestCoin) {
+                highestValidators[lowIndex] = staker;
+                currentValidators.push(validatorRemoveAddress);
+            }
+        }
+
+        currentValidators.push(staker);
+
+        return true;
+    }
+
+    function stakeDelegator(address validator) public payable returns(bool){
+        address staker = msg.sender;
+        uint256 stakeamount = msg.value;
+        
+    }
+
+    /**********Internal Functions**********/
+
+    function isActiveValidator(address who) private view returns (bool) {
+        for (uint256 k = 0; k < currentValidators.length; k++) {
+            if (who == currentValidators[k]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /*******Getter*******/
+    function getCurrentValidators() public view returns (address[] memory) {
+        return currentValidators;
+    }
+
+    function getHighestValidators() public view returns (address[] memory) {
+        return highestValidators;
+    }
+}
